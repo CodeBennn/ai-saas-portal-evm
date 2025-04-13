@@ -1,0 +1,36 @@
+{
+  "language": "Solidity",
+  "sources": {
+    "contracts/TaskRegistry.sol": {
+      "content": "// SPDX-License-Identifier: MIT\r\npragma solidity >=0.8.0 <0.9.0;\r\n\r\ncontract OPToken {\r\n    string public name = \"Optimism Token\";\r\n    string public symbol = \"OP\";\r\n    uint8 public decimals = 18;\r\n    uint256 public totalSupply;\r\n    \r\n    mapping(address => uint256) public balanceOf;\r\n    mapping(address => mapping(address => uint256)) public allowance;\r\n\r\n    event Transfer(address indexed from, address indexed to, uint256 value);\r\n    event Approval(address indexed owner, address indexed spender, uint256 value);\r\n\r\n    function transfer(address to, uint256 value) external returns (bool) {\r\n        balanceOf[msg.sender] -= value;\r\n        balanceOf[to] += value;\r\n        emit Transfer(msg.sender, to, value);\r\n        return true;\r\n    }\r\n\r\n    function approve(address spender, uint256 value) external returns (bool) {\r\n        allowance[msg.sender][spender] = value;\r\n        emit Approval(msg.sender, spender, value);\r\n        return true;\r\n    }\r\n\r\n    function transferFrom(address from, address to, uint256 value) external returns (bool) {\r\n        require(allowance[from][msg.sender] >= value, \"Allowance exceeded\");\r\n        allowance[from][msg.sender] -= value;\r\n        balanceOf[from] -= value;\r\n        balanceOf[to] += value;\r\n        emit Transfer(from, to, value);\r\n        return true;\r\n    }\r\n\r\n    function mint(address to, uint256 value) external {\r\n        balanceOf[to] += value;\r\n        totalSupply += value;\r\n        emit Transfer(address(0), to, value);\r\n    }\r\n}\r\n\r\n\r\n\r\n// 1. 任务核心合约\r\ncontract TaskRegistry {\r\n    enum TaskStatus { Created, SolutionSelected, Completed }\r\n    \r\n    struct Task {\r\n        uint256 id;\r\n        address creator;\r\n        uint256 reward;\r\n        TaskStatus status;\r\n        uint256 selectedSolution;\r\n    }\r\n    \r\n    struct Solution {\r\n        uint256 id;\r\n        uint256 taskId;\r\n        address solver;\r\n        string content;\r\n        bool rewarded;\r\n    }\r\n    \r\n    mapping(uint256 => Task) public tasks;\r\n    mapping(uint256 => Solution) public solutions;\r\n    uint256 public taskCount;\r\n    uint256 public solutionCount;\r\n    \r\n    OPToken public opToken;\r\n    \r\n    event TaskCreated(uint256 taskId, address creator, uint256 reward);\r\n    event SolutionSubmitted(uint256 solutionId, uint256 taskId, address solver);\r\n    event SolutionSelected(uint256 taskId, uint256 solutionId);\r\n    event RewardClaimed(uint256 taskId, uint256 solutionId, address solver);\r\n\r\n    constructor(address _opToken) {\r\n        opToken = OPToken(_opToken);\r\n    }\r\n\r\n    // 创建任务并锁定奖励\r\n    function createTask(uint256 reward) public payable {\r\n        require(reward > 0, \"Reward must be positive\");\r\n        \r\n        opToken.transferFrom(msg.sender, address(this), reward);\r\n        \r\n        taskCount++;\r\n        tasks[taskCount] = Task({\r\n            id: taskCount,\r\n            creator: msg.sender,\r\n            reward: reward,\r\n            status: TaskStatus.Created,\r\n            selectedSolution: 0\r\n        });\r\n        \r\n        emit TaskCreated(taskCount, msg.sender, reward);\r\n    }\r\n\r\n    // 提交解决方案\r\n    function submitSolution(uint256 taskId, string memory content) public payable {\r\n        require(tasks[taskId].status == TaskStatus.Created, \"Task not open\");\r\n        \r\n        solutionCount++;\r\n        solutions[solutionCount] = Solution({\r\n            id: solutionCount,\r\n            taskId: taskId,\r\n            solver: msg.sender,\r\n            content: content,\r\n            rewarded: false\r\n        });\r\n        \r\n        emit SolutionSubmitted(solutionCount, taskId, msg.sender);\r\n    }\r\n\r\n    // 选择解决方案（仅任务创建者）\r\n    function selectSolution(uint256 taskId, uint256 solutionId) external {\r\n        Task storage task = tasks[taskId];\r\n        require(msg.sender == task.creator, \"Not task creator\");\r\n        require(task.status == TaskStatus.Created, \"Invalid status\");\r\n        require(solutions[solutionId].taskId == taskId, \"Solution mismatch\");\r\n        \r\n        task.selectedSolution = solutionId;\r\n        task.status = TaskStatus.SolutionSelected;\r\n        \r\n        emit SolutionSelected(taskId, solutionId);\r\n    }\r\n\r\n    // 领取奖励（仅解决方案提交者）\r\n    function claimReward(uint256 taskId) external {\r\n        Task storage task = tasks[taskId];\r\n        require(task.status == TaskStatus.SolutionSelected, \"Reward not ready\");\r\n        \r\n        Solution storage solution = solutions[task.selectedSolution];\r\n        require(!solution.rewarded, \"Already rewarded\");\r\n        require(msg.sender == solution.solver, \"Not solution provider\");\r\n        \r\n        solution.rewarded = true;\r\n        task.status = TaskStatus.Completed;\r\n        opToken.transfer(solution.solver, task.reward);\r\n        \r\n        emit RewardClaimed(taskId, task.selectedSolution, solution.solver);\r\n    }\r\n}\r\n"
+    }
+  },
+  "settings": {
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "evmVersion": "paris",
+    "outputSelection": {
+      "*": {
+        "*": [
+          "abi",
+          "evm.bytecode",
+          "evm.deployedBytecode",
+          "evm.methodIdentifiers",
+          "metadata",
+          "devdoc",
+          "userdoc",
+          "storageLayout",
+          "evm.gasEstimates"
+        ],
+        "": [
+          "ast"
+        ]
+      }
+    },
+    "metadata": {
+      "useLiteralContent": true
+    }
+  }
+}
